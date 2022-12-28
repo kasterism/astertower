@@ -92,3 +92,12 @@ fmt: ## Run go fmt against code.
 
 vet: ## Run go vet against code.
 	go vet ./...
+
+build: fmt vet ## Build manager binary.
+	go build -o bin/astertower main.go
+
+run: fmt vet ## Run code from your host.
+	go run ./main.go
+
+test:
+	go test ./... -coverprofile cover.out
