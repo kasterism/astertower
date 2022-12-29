@@ -20,12 +20,41 @@ type Astro struct {
 	Status AstroStatus `json:"status,omitempty"`
 }
 
+type AstroStarType string
+
+const (
+	AstroStarDocker AstroStarType = "docker"
+)
+
+type AstroStar struct {
+	Name string        `json:"name"`
+	Type AstroStarType `json:"type"`
+	// +optional
+	Dependencies []string `json:"dependencies,omitempty"`
+
+	// docker type configuration
+
+	// +optional
+	Action string `json:"action,omitempty"`
+	// +optional
+	Target string `json:"target,omitempty"`
+	// +optional
+	Image string `json:"image,omitempty"`
+	// +optional
+	Port int32 `json:"port,omitempty"`
+}
+
 // AstroSpec is the spec for a Astro resource
 type AstroSpec struct {
+	Stars []AstroStar `json:"stars,omitempty"`
 }
 
 // AstroStatus is the status for a Astro resource
 type AstroStatus struct {
+	// +optional
+	Ready bool `json:"ready,omitempty"`
+	// +optional
+	Initialized bool `json:"initialized,omitempty"`
 }
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object

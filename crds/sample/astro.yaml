@@ -3,3 +3,28 @@ kind: Astro
 metadata:
   name: astro-demo
   namespace: default
+spec:
+  stars:
+  - name: A
+    action: GET
+    image: kasterism/test_a
+    port: 8000
+    target: /test
+  - name: B
+    action: POST
+    image: kasterism/test_b
+    port: 8001
+    target: /test 
+    dependencies: [A]
+  - name: C
+    action: POST
+    image: kasterism/test_c
+    port: 8002
+    target: /test
+    dependencies: [A]
+  - name: D
+    action: POST
+    image: kasterism/test_d
+    port: 8003
+    target: /test 
+    dependencies: [B, C]
