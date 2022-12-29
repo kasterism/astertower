@@ -16,8 +16,8 @@ type Astro struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
-	Spec   AstroSpec   `json:"spec"`
-	Status AstroStatus `json:"status"`
+	Spec   AstroSpec   `json:"spec,omitempty"`
+	Status AstroStatus `json:"status,omitempty"`
 }
 
 // AstroSpec is the spec for a Astro resource

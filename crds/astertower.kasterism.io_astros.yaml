@@ -40,9 +40,6 @@ spec:
           status:
             description: AstroStatus is the status for a Astro resource
             type: object
-        required:
-        - spec
-        - status
         type: object
     served: true
     storage: true
