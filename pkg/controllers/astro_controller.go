@@ -27,11 +27,14 @@ func NewAstroController(informer informers.AstroInformer) *AstroController {
 
 	klog.Infoln("Setting up Astro event handlers")
 
-	informer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
+	_, err := informer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc:    astroController.addAstro,
 		DeleteFunc: astroController.deleteAstro,
 		UpdateFunc: astroController.updateAstro,
 	})
+	if err != nil {
+		klog.Fatalln("Failed to add event handlers")
+	}
 
 	return astroController
 }
