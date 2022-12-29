@@ -1,0 +1,5 @@
+apiVersion: astertower.kasterism.io/v1alpha1
+kind: Astro
+metadata:
+  name: astro-demo
+  namespace: default

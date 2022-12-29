@@ -101,3 +101,9 @@ run: fmt vet ## Run code from your host.
 
 test:
 	go test ./... -coverprofile cover.out
+
+install:
+	kubectl apply -f crds
+
+uninstall:
+	kubectl delete -f crds
