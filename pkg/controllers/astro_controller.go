@@ -14,6 +14,11 @@ import (
 	"k8s.io/klog/v2"
 )
 
+const (
+	// name of finalizer
+	AstroFinalizer = "astros.astertower.kasterism.io"
+)
+
 type AstroController struct {
 	informer  informers.AstroInformer
 	workqueue workqueue.RateLimitingInterface
@@ -121,7 +126,15 @@ func (c *AstroController) addAstro(item interface{}) {
 		runtime.HandleError(err)
 		return
 	}
-	klog.Infoln("add astro crd")
+
+	klog.Infoln("adding astro crd")
+
+	// Add finalizer
+	astro := item.(*v1alpha1.Astro)
+	astro.Finalizers = append(astro.Finalizers, AstroFinalizer)
+
+	klog.Infoln("added astro crd")
+
 	c.workqueue.AddRateLimited(key)
 }
 
@@ -132,7 +145,21 @@ func (c *AstroController) deleteAstro(item interface{}) {
 		runtime.HandleError(err)
 		return
 	}
-	klog.Infoln("delete astro crd")
+
+	klog.Infoln("deleting astro crd")
+
+	astro := item.(*v1alpha1.Astro)
+
+	// Remove finalizer
+	for i, finalizer := range astro.Finalizers {
+		if finalizer == AstroFinalizer {
+			astro.Finalizers[i] = astro.Finalizers[len(astro.Finalizers)-1]
+			astro.Finalizers = astro.Finalizers[:len(astro.Finalizers)-1]
+		}
+	}
+
+	klog.Infoln("deleted astro crd")
+
 	c.workqueue.AddRateLimited(key)
 }
 

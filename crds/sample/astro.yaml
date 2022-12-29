@@ -6,23 +6,27 @@ metadata:
 spec:
   stars:
   - name: A
+    type: docker
     action: GET
     image: kasterism/test_a
     port: 8000
     target: /test
   - name: B
+    type: docker
     action: POST
     image: kasterism/test_b
     port: 8001
     target: /test 
     dependencies: [A]
   - name: C
+    type: docker
     action: POST
     image: kasterism/test_c
     port: 8002
     target: /test
     dependencies: [A]
   - name: D
+    type: docker
     action: POST
     image: kasterism/test_d
     port: 8003
