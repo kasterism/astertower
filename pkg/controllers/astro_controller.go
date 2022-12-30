@@ -129,7 +129,7 @@ func (c *AstroController) addAstro(item interface{}) {
 
 	klog.Infoln("adding astro crd")
 
-	// Add finalizer
+	// Add finalizer when creating resources
 	astro := item.(*v1alpha1.Astro)
 	astro.Finalizers = append(astro.Finalizers, AstroFinalizer)
 
@@ -150,7 +150,7 @@ func (c *AstroController) deleteAstro(item interface{}) {
 
 	astro := item.(*v1alpha1.Astro)
 
-	// Remove finalizer
+	// Remove finalizer when deleting resources
 	for i, finalizer := range astro.Finalizers {
 		if finalizer == AstroFinalizer {
 			astro.Finalizers[i] = astro.Finalizers[len(astro.Finalizers)-1]
