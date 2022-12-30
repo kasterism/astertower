@@ -49,12 +49,30 @@ type AstroSpec struct {
 	Stars []AstroStar `json:"stars,omitempty"`
 }
 
+type AstroConditionType string
+
+const (
+	AstroConditionInitializing AstroConditionType = "initializing"
+	AstroConditionRunning      AstroConditionType = "running"
+	AstroConditionFailed       AstroConditionType = "failed"
+	AstroConditionSucceeded    AstroConditionType = "succeeded"
+)
+
+// Condition defines an observation of a Cluster API resource operational state.
+type AstroCondition struct {
+	// Workflow status
+	Type AstroConditionType `json:"type"`
+
+	// Last time the condition transitioned from one status to another.
+	// This should be when the underlying condition changed. If that is not known, then using the time when
+	// the API field changed is acceptable.
+	LastTransitionTime metav1.Time `json:"lastTransitionTime"`
+}
+
 // AstroStatus is the status for a Astro resource
 type AstroStatus struct {
 	// +optional
-	Ready bool `json:"ready,omitempty"`
-	// +optional
-	Initialized bool `json:"initialized,omitempty"`
+	Conditions []AstroCondition `json:"conditions,omitempty"`
 }
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
