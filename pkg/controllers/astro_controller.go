@@ -5,11 +5,16 @@ import (
 	"time"
 
 	"github.com/kasterism/astertower/pkg/apis/v1alpha1"
+	astertowerclientset "github.com/kasterism/astertower/pkg/clients/clientset/astertower"
 	informers "github.com/kasterism/astertower/pkg/clients/informer/externalversions/apis/v1alpha1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/wait"
+	appsinformers "k8s.io/client-go/informers/apps/v1"
+	coreinformers "k8s.io/client-go/informers/core/v1"
+	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/cache"
+	"k8s.io/client-go/tools/record"
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
 )
@@ -20,19 +25,36 @@ const (
 )
 
 type AstroController struct {
-	informer  informers.AstroInformer
+	kubeClientset kubernetes.Interface
+
+	astroClientset astertowerclientset.Interface
+
+	deploymentInformer appsinformers.DeploymentInformer
+
+	serviceInformer coreinformers.ServiceInformer
+
+	astroInformer informers.AstroInformer
+
 	workqueue workqueue.RateLimitingInterface
+
+	recorder record.EventRecorder
 }
 
-func NewAstroController(informer informers.AstroInformer) *AstroController {
+func NewAstroController(kubeClientset kubernetes.Interface, astroClientset astertowerclientset.Interface,
+	deploymentInformer appsinformers.DeploymentInformer, serviceInformer coreinformers.ServiceInformer,
+	astroInformer informers.AstroInformer) *AstroController {
 	astroController := &AstroController{
-		informer:  informer,
-		workqueue: workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), "astro"),
+		kubeClientset:      kubeClientset,
+		astroClientset:     astroClientset,
+		deploymentInformer: deploymentInformer,
+		serviceInformer:    serviceInformer,
+		astroInformer:      astroInformer,
+		workqueue:          workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), "astro"),
 	}
 
 	klog.Infoln("Setting up Astro event handlers")
 
-	_, err := informer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
+	_, err := astroInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc:    astroController.addAstro,
 		DeleteFunc: astroController.deleteAstro,
 		UpdateFunc: astroController.updateAstro,
@@ -51,7 +73,7 @@ func (c *AstroController) Run(thread int, stopCh <-chan struct{}) error {
 	klog.Infoln("Starting Astro control loop")
 
 	klog.Infoln("Waiting for informer caches to sync")
-	if ok := cache.WaitForCacheSync(stopCh, c.informer.Informer().HasSynced); !ok {
+	if ok := cache.WaitForCacheSync(stopCh, c.astroInformer.Informer().HasSynced); !ok {
 		return fmt.Errorf("failed to wati for caches to sync")
 	}
 
@@ -106,7 +128,7 @@ func (c *AstroController) syncHandler(key string) error {
 		runtime.HandleError(fmt.Errorf("invalid respirce key:%s", key))
 	}
 
-	astro, err := c.informer.Lister().Astros(namespace).Get(name)
+	astro, err := c.astroInformer.Lister().Astros(namespace).Get(name)
 	if err != nil {
 		if errors.IsNotFound(err) {
 			return nil
