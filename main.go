@@ -8,6 +8,8 @@ import (
 	"github.com/kasterism/astertower/pkg/clients/informer/externalversions"
 	"github.com/kasterism/astertower/pkg/controllers"
 	"github.com/kasterism/astertower/pkg/signals"
+	kubeinformers "k8s.io/client-go/informers"
+	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/klog/v2"
 )
@@ -34,16 +36,26 @@ func main() {
 		klog.Fatalln(err)
 	}
 
-	clientSet, err := astertowerclientset.NewForConfig(config)
+	kubeClientset, err := kubernetes.NewForConfig(config)
 	if err != nil {
 		klog.Fatalln(err)
 	}
 
-	factory := externalversions.NewSharedInformerFactory(clientSet, time.Second*30)
+	astroClientset, err := astertowerclientset.NewForConfig(config)
+	if err != nil {
+		klog.Fatalln(err)
+	}
 
-	astroController := controllers.NewAstroController(factory.Astertower().V1alpha1().Astros())
+	kubeInformerFactory := kubeinformers.NewSharedInformerFactory(kubeClientset, time.Second*30)
+	astroInformerFactory := externalversions.NewSharedInformerFactory(astroClientset, time.Second*30)
 
-	go factory.Start(stopCh)
+	astroController := controllers.NewAstroController(kubeClientset, astroClientset,
+		kubeInformerFactory.Apps().V1().Deployments(),
+		kubeInformerFactory.Core().V1().Services(),
+		astroInformerFactory.Astertower().V1alpha1().Astros())
+
+	go kubeInformerFactory.Start(stopCh)
+	go astroInformerFactory.Start(stopCh)
 
 	if err = astroController.Run(3, stopCh); err != nil {
 		klog.Fatalln("Error running controller:", err.Error())
