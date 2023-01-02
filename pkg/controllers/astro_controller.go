@@ -1,6 +1,7 @@
 package controllers
 
 import (
+	"context"
 	"fmt"
 	"time"
 
@@ -8,6 +9,7 @@ import (
 	astertowerclientset "github.com/kasterism/astertower/pkg/clients/clientset/astertower"
 	informers "github.com/kasterism/astertower/pkg/clients/informer/externalversions/apis/v1alpha1"
 	"k8s.io/apimachinery/pkg/api/errors"
+	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/wait"
 	appsinformers "k8s.io/client-go/informers/apps/v1"
@@ -136,9 +138,18 @@ func (c *AstroController) syncHandler(key string) error {
 		runtime.HandleError(fmt.Errorf("failed to get astro by: %s/%s", namespace, name))
 		return err
 	}
-	fmt.Printf("[AstroCRD] try to process astro:%#v ...\n", astro)
+	if !astro.DeletionTimestamp.IsZero() {
+		return c.syncDelete(astro)
+	}
+
+	for _, finalizer := range astro.Finalizers {
+		if finalizer == AstroFinalizer {
+			return c.syncUpdate(astro)
+		}
+	}
+
 	// TODO: do something
-	return nil
+	return c.syncCreate(astro)
 }
 
 func (c *AstroController) addAstro(item interface{}) {
@@ -149,13 +160,7 @@ func (c *AstroController) addAstro(item interface{}) {
 		return
 	}
 
-	klog.Infoln("adding astro crd")
-
-	// Add finalizer when creating resources
-	astro := item.(*v1alpha1.Astro)
-	astro.Finalizers = append(astro.Finalizers, AstroFinalizer)
-
-	klog.Infoln("added astro crd")
+	klog.Infoln("Enqueue the astro crd for adding")
 
 	c.workqueue.AddRateLimited(key)
 }
@@ -168,9 +173,54 @@ func (c *AstroController) deleteAstro(item interface{}) {
 		return
 	}
 
-	klog.Infoln("deleting astro crd")
+	klog.Infoln("Enqueue the astro crd for deleting")
 
-	astro := item.(*v1alpha1.Astro)
+	c.workqueue.AddRateLimited(key)
+}
+
+func (c *AstroController) updateAstro(old, new interface{}) {
+	var key string
+	var err error
+
+	oldItem := old.(*v1alpha1.Astro)
+	newItem := new.(*v1alpha1.Astro)
+	if oldItem.ResourceVersion == newItem.ResourceVersion {
+		return
+	}
+
+	if key, err = cache.MetaNamespaceKeyFunc(new); err != nil {
+		runtime.HandleError(err)
+		return
+	}
+
+	klog.Infoln("Enqueue the astro crd for updating")
+
+	c.workqueue.AddRateLimited(key)
+}
+
+func (c *AstroController) syncCreate(astro *v1alpha1.Astro) error {
+	klog.Infof("Sync create astro: %s\n", astro.Name)
+
+	// Add finalizer when creating resources
+	astro.Finalizers = append(astro.Finalizers, AstroFinalizer)
+
+	_, err := c.astroClientset.AstertowerV1alpha1().Astros(astro.Namespace).Update(context.TODO(),
+		astro, v1.UpdateOptions{})
+	if err != nil {
+		runtime.HandleError(err)
+		return err
+	}
+	return nil
+}
+
+func (c *AstroController) syncUpdate(astro *v1alpha1.Astro) error {
+	klog.Infof("Sync update astro: %s\n", astro.Name)
+
+	return nil
+}
+
+func (c *AstroController) syncDelete(astro *v1alpha1.Astro) error {
+	klog.Infof("Sync delete astro: %s\n", astro.Name)
 
 	// Remove finalizer when deleting resources
 	for i, finalizer := range astro.Finalizers {
@@ -180,16 +230,12 @@ func (c *AstroController) deleteAstro(item interface{}) {
 		}
 	}
 
-	klog.Infoln("deleted astro crd")
-
-	c.workqueue.AddRateLimited(key)
-}
-
-func (c *AstroController) updateAstro(old, new interface{}) {
-	oldItem := old.(*v1alpha1.Astro)
-	newItem := new.(*v1alpha1.Astro)
-	if oldItem.ResourceVersion == newItem.ResourceVersion {
-		return
+	_, err := c.astroClientset.AstertowerV1alpha1().Astros(astro.Namespace).Update(context.TODO(),
+		astro, v1.UpdateOptions{})
+	if err != nil {
+		runtime.HandleError(err)
+		return err
 	}
-	c.workqueue.AddRateLimited(new)
+
+	return nil
 }
