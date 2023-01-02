@@ -5,30 +5,30 @@ metadata:
   namespace: default
 spec:
   stars:
-  - name: A
+  - name: a
     type: docker
     action: GET
     image: kasterism/test_a
     port: 8000
     target: /test
-  - name: B
+  - name: b
     type: docker
     action: POST
     image: kasterism/test_b
     port: 8001
     target: /test 
-    dependencies: [A]
-  - name: C
+    dependencies: [a]
+  - name: c
     type: docker
     action: POST
     image: kasterism/test_c
     port: 8002
     target: /test
-    dependencies: [A]
-  - name: D
+    dependencies: [a]
+  - name: d
     type: docker
     action: POST
     image: kasterism/test_d
     port: 8003
     target: /test 
-    dependencies: [B, C]
+    dependencies: [b, c]
