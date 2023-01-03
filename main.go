@@ -57,7 +57,7 @@ func main() {
 	go kubeInformerFactory.Start(stopCh)
 	go astroInformerFactory.Start(stopCh)
 
-	if err = astroController.Run(3, stopCh); err != nil {
+	if err = astroController.Run(2, stopCh); err != nil {
 		klog.Fatalln("Error running controller:", err.Error())
 	}
 }

@@ -142,6 +142,16 @@ func (in *AstroStatus) DeepCopyInto(out *AstroStatus) {
 			(*in)[i].DeepCopyInto(&(*out)[i])
 		}
 	}
+	if in.DeploymentRef != nil {
+		in, out := &in.DeploymentRef, &out.DeploymentRef
+		*out = make([]string, len(*in))
+		copy(*out, *in)
+	}
+	if in.ServiceRef != nil {
+		in, out := &in.ServiceRef, &out.ServiceRef
+		*out = make([]string, len(*in))
+		copy(*out, *in)
+	}
 	return
 }
 
