@@ -71,7 +71,39 @@ func NewAstroController(kubeClientset kubernetes.Interface, astroClientset aster
 		UpdateFunc: astroController.updateAstro,
 	})
 	if err != nil {
-		klog.Fatalln("Failed to add event handlers")
+		klog.Fatalln("Failed to add astro event handlers")
+	}
+
+	_, err = deploymentInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
+		AddFunc: astroController.handleDeployment,
+		UpdateFunc: func(oldObj, newObj interface{}) {
+			oldDeployment := oldObj.(*appsv1.Deployment)
+			newDeployment := newObj.(*appsv1.Deployment)
+			if oldDeployment.ResourceVersion == newDeployment.ResourceVersion {
+				return
+			}
+			astroController.handleDeployment(newDeployment)
+		},
+		DeleteFunc: astroController.handleDeployment,
+	})
+	if err != nil {
+		klog.Fatalln("Failed to add deployment event handlers")
+	}
+
+	_, err = serviceInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
+		AddFunc: astroController.handleService,
+		UpdateFunc: func(oldObj, newObj interface{}) {
+			oldService := oldObj.(*corev1.Service)
+			newService := newObj.(*corev1.Service)
+			if oldService.ResourceVersion == newService.ResourceVersion {
+				return
+			}
+			astroController.handleService(newService)
+		},
+		DeleteFunc: astroController.handleService,
+	})
+	if err != nil {
+		klog.Fatalln("Failed to add service event handlers")
 	}
 
 	return astroController
@@ -430,4 +462,12 @@ func (c *AstroController) newAstermule(astro *v1alpha1.Astro) error {
 	astro.Status.AstermuleRef = pod.Namespace + "/" + pod.Name
 
 	return nil
+}
+
+func (c *AstroController) handleDeployment(item interface{}) {
+
+}
+
+func (c *AstroController) handleService(item interface{}) {
+
 }
