@@ -2,6 +2,7 @@ package controllers
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -222,7 +223,6 @@ func (c *AstroController) syncCreate(astro *v1alpha1.Astro) error {
 		if err != nil {
 			return err
 		}
-
 	}
 
 	err := c.newAstermule(astro)
@@ -230,18 +230,60 @@ func (c *AstroController) syncCreate(astro *v1alpha1.Astro) error {
 		return err
 	}
 
-	_, err = c.astroClientset.AstertowerV1alpha1().
+	data, err := json.Marshal(astro.Status)
+	if err != nil {
+		klog.Errorln("Unable to marshal status of astro:", err)
+		return err
+	}
+	astro.Annotations["CreateStatus"] = string(data)
+
+	_, err = c.astroClientset.
+		AstertowerV1alpha1().
 		Astros(astro.Namespace).
 		Update(context.TODO(), astro, metav1.UpdateOptions{})
 	if err != nil {
 		runtime.HandleError(err)
 		return err
 	}
+
 	return nil
 }
 
 func (c *AstroController) syncUpdate(astro *v1alpha1.Astro) error {
 	klog.Infof("Sync update astro: %s\n", astro.Name)
+
+	if astro.Status.Initialized {
+		delete(astro.Annotations, "CreateStatus")
+		_, err := c.astroClientset.
+			AstertowerV1alpha1().
+			Astros(astro.Namespace).
+			Update(context.TODO(), astro, metav1.UpdateOptions{})
+		if err != nil {
+			runtime.HandleError(err)
+			return err
+		}
+		return nil
+	}
+
+	if data, ok := astro.Annotations["CreateStatus"]; ok {
+		status := &v1alpha1.AstroStatus{}
+		err := json.Unmarshal([]byte(data), status)
+		if err != nil {
+			klog.Errorln("Failed to initialize status of astro:", err)
+			return err
+		}
+		astro.Status = *status
+		astro.Status.Initialized = true
+	}
+
+	_, err := c.astroClientset.
+		AstertowerV1alpha1().
+		Astros(astro.Namespace).
+		UpdateStatus(context.TODO(), astro, metav1.UpdateOptions{})
+	if err != nil {
+		runtime.HandleError(err)
+		return err
+	}
 
 	return nil
 }
@@ -313,6 +355,8 @@ func (c *AstroController) newDeployment(astro *v1alpha1.Astro, star *v1alpha1.As
 		return err
 	}
 
+	astro.Status.DeploymentRef = append(astro.Status.DeploymentRef, deployment.Namespace+"/"+deployment.Name)
+
 	return nil
 }
 
@@ -348,6 +392,9 @@ func (c *AstroController) newService(astro *v1alpha1.Astro, star *v1alpha1.Astro
 		klog.Errorln("Failed to create service:", err)
 		return err
 	}
+
+	astro.Status.ServiceRef = append(astro.Status.ServiceRef, service.Namespace+"/"+service.Name)
+
 	return nil
 }
 
@@ -379,5 +426,8 @@ func (c *AstroController) newAstermule(astro *v1alpha1.Astro) error {
 		klog.Errorln("Failed to create astermule:", err)
 		return err
 	}
+
+	astro.Status.AstermuleRef = pod.Namespace + "/" + pod.Name
+
 	return nil
 }

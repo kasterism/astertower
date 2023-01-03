@@ -66,6 +66,8 @@ spec:
           status:
             description: AstroStatus is the status for a Astro resource
             properties:
+              astermuleRef:
+                type: string
               conditions:
                 items:
                   description: Condition defines an observation of a Cluster API resource
@@ -85,6 +87,16 @@ spec:
                   - lastTransitionTime
                   - type
                   type: object
+                type: array
+              deploymentRef:
+                items:
+                  type: string
+                type: array
+              initialized:
+                type: boolean
+              serviceRef:
+                items:
+                  type: string
                 type: array
             type: object
         type: object

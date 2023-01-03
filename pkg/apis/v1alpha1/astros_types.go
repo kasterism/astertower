@@ -72,9 +72,18 @@ type AstroCondition struct {
 // AstroStatus is the status for a Astro resource
 type AstroStatus struct {
 	// +optional
+	Initialized bool `json:"initialized,omitempty"`
+	// +optional
 	Conditions []AstroCondition `json:"conditions,omitempty"`
+	// +optional
+	DeploymentRef []string `json:"deploymentRef,omitempty"`
+	// +optional
+	ServiceRef []string `json:"serviceRef,omitempty"`
+	// +optional
+	AstermuleRef string `json:"astermuleRef,omitempty"`
 }
 
+// +kubebuilder:object:root=true
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 
 // AstroList is a list of Astro resources
