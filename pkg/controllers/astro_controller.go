@@ -8,6 +8,7 @@ import (
 
 	"github.com/kasterism/astertower/pkg/apis/v1alpha1"
 	astertowerclientset "github.com/kasterism/astertower/pkg/clients/clientset/astertower"
+	"github.com/kasterism/astertower/pkg/clients/clientset/astertower/scheme"
 	informers "github.com/kasterism/astertower/pkg/clients/informer/externalversions/apis/v1alpha1"
 	astrolister "github.com/kasterism/astertower/pkg/clients/lister/apis/v1alpha1"
 	appsv1 "k8s.io/api/apps/v1"
@@ -20,6 +21,7 @@ import (
 	appsinformers "k8s.io/client-go/informers/apps/v1"
 	coreinformers "k8s.io/client-go/informers/core/v1"
 	"k8s.io/client-go/kubernetes"
+	typedcorev1 "k8s.io/client-go/kubernetes/typed/core/v1"
 	appslisters "k8s.io/client-go/listers/apps/v1"
 	corelisters "k8s.io/client-go/listers/core/v1"
 	"k8s.io/client-go/tools/cache"
@@ -32,7 +34,7 @@ const (
 	// name of finalizer
 	AstroFinalizer = "astros.astertower.kasterism.io"
 	AstermuleImage = "kasterism/astermule:v0.1.0-rc"
-	// maxRetries is the number of times a deployment will be retried before it is dropped out of the queue.
+	// maxRetries is the number of times an astro will be retried before it is dropped out of the queue.
 	// With the current rate-limiter in use (5ms*2^(maxRetries-1)) the following numbers represent the times
 	// a deployment is going to be requeued:
 	//
@@ -46,27 +48,22 @@ var (
 )
 
 type AstroController struct {
-	kubeClientset kubernetes.Interface
-
+	kubeClientset  kubernetes.Interface
 	astroClientset astertowerclientset.Interface
 
-	recorder record.EventRecorder
+	eventBroadcaster record.EventBroadcaster
+	eventRecorder    record.EventRecorder
 
-	syncHandler func(ctx context.Context, key string) error
-
+	syncHandler  func(ctx context.Context, key string) error
 	enqueueAstro func(astro *v1alpha1.Astro)
 
-	astroLister astrolister.AstroLister
-
+	astroLister      astrolister.AstroLister
 	deploymentLister appslisters.DeploymentLister
+	serviceLister    corelisters.ServiceLister
 
-	serviceLister corelisters.ServiceLister
-
-	astroListerSynced cache.InformerSynced
-
+	astroListerSynced      cache.InformerSynced
 	deploymentListerSynced cache.InformerSynced
-
-	serviceListerSynced cache.InformerSynced
+	serviceListerSynced    cache.InformerSynced
 
 	queue workqueue.RateLimitingInterface
 }
@@ -74,10 +71,15 @@ type AstroController struct {
 func NewAstroController(kubeClientset kubernetes.Interface, astroClientset astertowerclientset.Interface,
 	deploymentInformer appsinformers.DeploymentInformer, serviceInformer coreinformers.ServiceInformer,
 	astroInformer informers.AstroInformer) *AstroController {
+
+	eventBroadcaster := record.NewBroadcaster()
+
 	astroController := &AstroController{
-		kubeClientset:  kubeClientset,
-		astroClientset: astroClientset,
-		queue:          workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), "astro"),
+		kubeClientset:    kubeClientset,
+		astroClientset:   astroClientset,
+		eventBroadcaster: eventBroadcaster,
+		eventRecorder:    eventBroadcaster.NewRecorder(scheme.Scheme, corev1.EventSource{Component: "astro-controller"}),
+		queue:            workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), "astro"),
 	}
 
 	_, err := astroInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
@@ -137,7 +139,10 @@ func NewAstroController(kubeClientset kubernetes.Interface, astroClientset aster
 func (c *AstroController) Run(ctx context.Context, worker int) error {
 	defer runtime.HandleCrash()
 
-	// TODO: Start events broadcaster
+	// Start events processing pipeline.
+	c.eventBroadcaster.StartStructuredLogging(0)
+	c.eventBroadcaster.StartRecordingToSink(&typedcorev1.EventSinkImpl{Interface: c.kubeClientset.CoreV1().Events("")})
+	defer c.eventBroadcaster.Shutdown()
 
 	defer c.queue.ShuttingDown()
 
