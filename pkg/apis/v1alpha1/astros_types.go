@@ -52,21 +52,31 @@ type AstroSpec struct {
 type AstroConditionType string
 
 const (
-	AstroConditionInitializing AstroConditionType = "initializing"
-	AstroConditionRunning      AstroConditionType = "running"
-	AstroConditionFailed       AstroConditionType = "failed"
-	AstroConditionSucceeded    AstroConditionType = "succeeded"
+	AstroConditionInitialized AstroConditionType = "Initialized"
+	AstroConditionReady       AstroConditionType = "Ready"
+	AstroConditionLaunched    AstroConditionType = "Launched"
+	AstroConditionFailed      AstroConditionType = "Failed"
+	AstroConditionSucceeded   AstroConditionType = "Succeeded"
 )
 
 // Condition defines an observation of a Cluster API resource operational state.
 type AstroCondition struct {
+	Type string `json:"type"`
+
 	// Workflow status
-	Type AstroConditionType `json:"type"`
+	Status AstroConditionType `json:"status"`
 
 	// Last time the condition transitioned from one status to another.
 	// This should be when the underlying condition changed. If that is not known, then using the time when
 	// the API field changed is acceptable.
 	LastTransitionTime metav1.Time `json:"lastTransitionTime"`
+}
+
+type AstroRef struct {
+	// +optional
+	Name string `json:"name,omitempty"`
+	// +optional
+	Namespace string `json:"namespace,omitempty"`
 }
 
 // AstroStatus is the status for a Astro resource
@@ -76,11 +86,15 @@ type AstroStatus struct {
 	// +optional
 	Conditions []AstroCondition `json:"conditions,omitempty"`
 	// +optional
-	DeploymentRef []string `json:"deploymentRef,omitempty"`
+	DeploymentRef []AstroRef `json:"deploymentRef,omitempty"`
 	// +optional
-	ServiceRef []string `json:"serviceRef,omitempty"`
+	ServiceRef []AstroRef `json:"serviceRef,omitempty"`
 	// +optional
-	AstermuleRef string `json:"astermuleRef,omitempty"`
+	AstermuleRef AstroRef `json:"astermuleRef,omitempty"`
+	// +optional
+	NodeNumber int32 `json:"nodeNumber,omitempty"`
+	// +optional
+	ReadyNodeNumber int32 `json:"readyNodeNumber,omitempty"`
 }
 
 // +kubebuilder:object:root=true

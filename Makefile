@@ -15,38 +15,39 @@ GOPATH_SRC=${GOPATH}/src
 all: register-gen deepcopy-gen defaulter-gen openapi-gen client-gen lister-gen informer-gen
 
 install-tools:
-	go install k8s.io/code-generator/cmd/client-gen@v0.25.3
-	go install k8s.io/code-generator/cmd/informer-gen@v0.25.3
-	go install k8s.io/code-generator/cmd/deepcopy-gen@v0.25.3
-	go install k8s.io/code-generator/cmd/lister-gen@v0.25.3
-	go install k8s.io/code-generator/cmd/register-gen@v0.25.3
-	go install k8s.io/code-generator/cmd/openapi-gen@v0.25.3
-	go install k8s.io/code-generator/cmd/defaulter-gen@v0.25.3
-	go install sigs.k8s.io/controller-tools/cmd/controller-gen@v0.10.0
+	go install k8s.io/code-generator/cmd/client-gen@v0.25.5
+	go install k8s.io/code-generator/cmd/informer-gen@v0.25.5
+	go install k8s.io/code-generator/cmd/deepcopy-gen@v0.25.5
+	go install k8s.io/code-generator/cmd/lister-gen@v0.25.5
+	go install k8s.io/code-generator/cmd/register-gen@v0.25.5
+	go install k8s.io/code-generator/cmd/openapi-gen@v0.25.5
+	go install k8s.io/code-generator/cmd/defaulter-gen@v0.25.5
+	go install sigs.k8s.io/controller-tools/cmd/controller-gen@v0.11.1
+	go install github.com/gogo/protobuf/protoc-gen-gogo@v1.3.2
 
 deepcopy-gen:
-	@echo ">> generating pkg/apis/deepcopy_generated.go"
+	@echo ">> generating pkg/apis/${VERSION}/deepcopy_generated.go"
 	deepcopy-gen --input-dirs ${PROJECT_APIS} \
 		--output-package ${PROJECT_APIS} -h ${HEADER} \
 	--alsologtostderr
 	mv ${GOPATH_SRC}/${PROJECT_APIS}/deepcopy_generated.go pkg/apis/${VERSION}
 
 register-gen:
-	@echo ">> generating pkg/apis/zz_generated.register.go"
+	@echo ">> generating pkg/apis/${VERSION}/zz_generated.register.go"
 	register-gen --input-dirs ${PROJECT_APIS} \
 		--output-package ${PROJECT_APIS} -h ${HEADER} \
 	--alsologtostderr
 	mv ${GOPATH_SRC}/${PROJECT_APIS}/zz_generated.register.go pkg/apis/${VERSION}
 
 defaulter-gen:
-	@echo ">> generating pkg/apis/zz_generated.defaults.go"
+	@echo ">> generating pkg/apis/${VERSION}/zz_generated.defaults.go"
 	defaulter-gen --input-dirs ${PROJECT_APIS} \
 		--output-package ${PROJECT_APIS} -h ${HEADER} \
 	--alsologtostderr
 	mv ${GOPATH_SRC}/${PROJECT_APIS}/zz_generated.defaults.go pkg/apis/${VERSION}
 
 openapi-gen:
-	@echo ">> generating pkg/apis/openapi_generated.go"
+	@echo ">> generating pkg/apis/${VERSION}/openapi_generated.go"
 	openapi-gen --input-dirs ${PROJECT_APIS} \
 		--output-package ${PROJECT_APIS} -h ${HEADER} \
 	--alsologtostderr
@@ -80,6 +81,14 @@ informer-gen:
 		--listers-package ${LISTER} \
 	--alsologtostderr
 	mv ${GOPATH_SRC}/${INFORMER} pkg/clients
+
+go-to-protobuf:
+	@echo ">> generating pkg/apis/${VERSION}/generated.proto"
+	go-to-protobuf --output-base="${GOPATH_SRC}" \
+	--packages="${PROJECT_APIS}" \
+	--proto-import "${GOPATH_SRC}/github.com/gogo/protobuf/protobuf" \
+	-h ${HEADER}
+	mv ${GOPATH_SRC}/${PROJECT_APIS}/generated.proto pkg/apis/${VERSION}
 
 crd:
 	controller-gen crd:crdVersions=v1,allowDangerousTypes=true paths="./pkg/apis/..." output:crd:artifacts:config=crds
