@@ -29,7 +29,7 @@ func main() {
 	flag.Parse()
 
 	// set up signals so we handle the first shutdown signal gracefully
-	stopCh := signals.SetupSignalHandler()
+	ctx := signals.SetupSignalHandler()
 
 	config, err := clientcmd.BuildConfigFromFlags(masterURL, kubeconfig)
 	if err != nil {
@@ -54,10 +54,10 @@ func main() {
 		kubeInformerFactory.Core().V1().Services(),
 		astroInformerFactory.Astertower().V1alpha1().Astros())
 
-	go kubeInformerFactory.Start(stopCh)
-	go astroInformerFactory.Start(stopCh)
+	go kubeInformerFactory.Start(ctx.Done())
+	go astroInformerFactory.Start(ctx.Done())
 
-	if err = astroController.Run(2, stopCh); err != nil {
+	if err = astroController.Run(ctx, 2); err != nil {
 		klog.Fatalln("Error running controller:", err.Error())
 	}
 }
