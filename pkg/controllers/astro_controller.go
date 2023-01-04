@@ -52,7 +52,7 @@ type AstroController struct {
 
 	recorder record.EventRecorder
 
-	syncHandler func(key string) error
+	syncHandler func(ctx context.Context, key string) error
 
 	enqueueAstro func(astro *v1alpha1.Astro)
 
@@ -134,7 +134,7 @@ func NewAstroController(kubeClientset kubernetes.Interface, astroClientset aster
 	return astroController
 }
 
-func (c *AstroController) Run(thread int, stopCh <-chan struct{}) error {
+func (c *AstroController) Run(ctx context.Context, worker int) error {
 	defer runtime.HandleCrash()
 
 	// TODO: Start events broadcaster
@@ -144,31 +144,31 @@ func (c *AstroController) Run(thread int, stopCh <-chan struct{}) error {
 	klog.InfoS("Starting controller", "controller", "astro")
 	defer klog.InfoS("Shutting down controller", "controller", "astro")
 
-	if !cache.WaitForNamedCacheSync("astro", stopCh, c.astroListerSynced, c.deploymentListerSynced, c.serviceListerSynced) {
+	if !cache.WaitForNamedCacheSync("astro", ctx.Done(), c.astroListerSynced, c.deploymentListerSynced, c.serviceListerSynced) {
 		return fmt.Errorf("failed to wati for caches to sync")
 	}
 
-	for i := 0; i < thread; i++ {
-		go wait.Until(c.worker, time.Second, stopCh)
+	for i := 0; i < worker; i++ {
+		go wait.UntilWithContext(ctx, c.worker, time.Second)
 	}
 
-	<-stopCh
+	<-ctx.Done()
 	return nil
 }
 
-func (c *AstroController) worker() {
-	for c.processNextWorkItem() {
+func (c *AstroController) worker(ctx context.Context) {
+	for c.processNextWorkItem(ctx) {
 	}
 }
 
-func (c *AstroController) processNextWorkItem() bool {
+func (c *AstroController) processNextWorkItem(ctx context.Context) bool {
 	key, quit := c.queue.Get()
 	if quit {
 		return false
 	}
 	defer c.queue.Done(key)
 
-	err := c.syncHandler(key.(string))
+	err := c.syncHandler(ctx, key.(string))
 	c.handleErr(err, key)
 
 	return true
@@ -243,7 +243,7 @@ func (c *AstroController) enqueue(astro *v1alpha1.Astro) {
 	c.queue.AddRateLimited(key)
 }
 
-func (c *AstroController) syncAstro(key string) error {
+func (c *AstroController) syncAstro(ctx context.Context, key string) error {
 	namespace, name, err := cache.SplitMetaNamespaceKey(key)
 	if err != nil {
 		klog.ErrorS(err, "Failed to split meta namespace cache key", "cacheKey", key)
@@ -266,38 +266,38 @@ func (c *AstroController) syncAstro(key string) error {
 		return err
 	}
 	if !astro.DeletionTimestamp.IsZero() {
-		return c.syncDelete(astro)
+		return c.syncDelete(ctx, astro)
 	}
 
 	for _, finalizer := range astro.Finalizers {
 		if finalizer == AstroFinalizer {
-			return c.syncUpdate(astro)
+			return c.syncUpdate(ctx, astro)
 		}
 	}
 
 	// TODO: do something
-	return c.syncCreate(astro)
+	return c.syncCreate(ctx, astro)
 }
 
-func (c *AstroController) syncCreate(astro *v1alpha1.Astro) error {
+func (c *AstroController) syncCreate(ctx context.Context, astro *v1alpha1.Astro) error {
 	klog.Infof("Sync create astro: %s\n", astro.Name)
 
 	// Add finalizer when creating resources
 	astro.Finalizers = append(astro.Finalizers, AstroFinalizer)
 
 	for _, star := range astro.Spec.Stars {
-		err := c.newDeployment(astro, &star)
+		err := c.newDeployment(ctx, astro, &star)
 		if err != nil {
 			return err
 		}
 
-		err = c.newService(astro, &star)
+		err = c.newService(ctx, astro, &star)
 		if err != nil {
 			return err
 		}
 	}
 
-	err := c.newAstermule(astro)
+	err := c.newAstermule(ctx, astro)
 	if err != nil {
 		return err
 	}
@@ -307,7 +307,7 @@ func (c *AstroController) syncCreate(astro *v1alpha1.Astro) error {
 	astro, err = c.astroClientset.
 		AstertowerV1alpha1().
 		Astros(astro.Namespace).
-		Update(context.TODO(), astro, metav1.UpdateOptions{})
+		Update(ctx, astro, metav1.UpdateOptions{})
 	if err != nil {
 		runtime.HandleError(err)
 		return err
@@ -320,18 +320,16 @@ func (c *AstroController) syncCreate(astro *v1alpha1.Astro) error {
 		LastTransitionTime: metav1.NewTime(time.Now()),
 	})
 
-	fmt.Println(statusCopy.AstermuleRef)
-
-	return c.syncStatus(astro, *statusCopy)
+	return c.syncStatus(ctx, astro, *statusCopy)
 }
 
-func (c *AstroController) syncUpdate(astro *v1alpha1.Astro) error {
+func (c *AstroController) syncUpdate(ctx context.Context, astro *v1alpha1.Astro) error {
 	klog.Infof("Sync update astro: %s\n", astro.Name)
 
-	return c.syncStatus(astro, astro.Status)
+	return c.syncStatus(ctx, astro, astro.Status)
 }
 
-func (c *AstroController) syncDelete(astro *v1alpha1.Astro) error {
+func (c *AstroController) syncDelete(ctx context.Context, astro *v1alpha1.Astro) error {
 	klog.Infof("Sync delete astro: %s\n", astro.Name)
 
 	// Remove finalizer when deleting resources
@@ -344,7 +342,7 @@ func (c *AstroController) syncDelete(astro *v1alpha1.Astro) error {
 
 	_, err := c.astroClientset.AstertowerV1alpha1().
 		Astros(astro.Namespace).
-		Update(context.TODO(), astro, metav1.UpdateOptions{})
+		Update(ctx, astro, metav1.UpdateOptions{})
 	if err != nil {
 		runtime.HandleError(err)
 		return err
@@ -353,7 +351,7 @@ func (c *AstroController) syncDelete(astro *v1alpha1.Astro) error {
 	return nil
 }
 
-func (c *AstroController) syncStatus(astro *v1alpha1.Astro, newStatus v1alpha1.AstroStatus) error {
+func (c *AstroController) syncStatus(ctx context.Context, astro *v1alpha1.Astro, newStatus v1alpha1.AstroStatus) error {
 	if reflect.DeepEqual(astro.Status, newStatus) {
 		return nil
 	}
@@ -362,12 +360,12 @@ func (c *AstroController) syncStatus(astro *v1alpha1.Astro, newStatus v1alpha1.A
 	_, err := c.astroClientset.
 		AstertowerV1alpha1().
 		Astros(astro.Namespace).
-		UpdateStatus(context.TODO(), astro, metav1.UpdateOptions{})
+		UpdateStatus(ctx, astro, metav1.UpdateOptions{})
 
 	return err
 }
 
-func (c *AstroController) newDeployment(astro *v1alpha1.Astro, star *v1alpha1.AstroStar) error {
+func (c *AstroController) newDeployment(ctx context.Context, astro *v1alpha1.Astro, star *v1alpha1.AstroStar) error {
 	labels := map[string]string{
 		"star": star.Name,
 	}
@@ -406,7 +404,7 @@ func (c *AstroController) newDeployment(astro *v1alpha1.Astro, star *v1alpha1.As
 	deployment, err := c.kubeClientset.
 		AppsV1().
 		Deployments(astro.Namespace).
-		Create(context.TODO(), deployment, metav1.CreateOptions{})
+		Create(ctx, deployment, metav1.CreateOptions{})
 	if err != nil {
 		klog.Errorln("Failed to create deployment:", err)
 		return err
@@ -420,7 +418,7 @@ func (c *AstroController) newDeployment(astro *v1alpha1.Astro, star *v1alpha1.As
 	return nil
 }
 
-func (c *AstroController) newService(astro *v1alpha1.Astro, star *v1alpha1.AstroStar) error {
+func (c *AstroController) newService(ctx context.Context, astro *v1alpha1.Astro, star *v1alpha1.AstroStar) error {
 	labels := map[string]string{
 		"star": star.Name,
 	}
@@ -447,7 +445,7 @@ func (c *AstroController) newService(astro *v1alpha1.Astro, star *v1alpha1.Astro
 	service, err := c.kubeClientset.
 		CoreV1().
 		Services(astro.Namespace).
-		Create(context.TODO(), service, metav1.CreateOptions{})
+		Create(ctx, service, metav1.CreateOptions{})
 	if err != nil {
 		klog.Errorln("Failed to create service:", err)
 		return err
@@ -461,7 +459,7 @@ func (c *AstroController) newService(astro *v1alpha1.Astro, star *v1alpha1.Astro
 	return nil
 }
 
-func (c *AstroController) newAstermule(astro *v1alpha1.Astro) error {
+func (c *AstroController) newAstermule(ctx context.Context, astro *v1alpha1.Astro) error {
 	pod := &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
 			Namespace: astro.Namespace,
@@ -484,7 +482,7 @@ func (c *AstroController) newAstermule(astro *v1alpha1.Astro) error {
 	pod, err := c.kubeClientset.
 		CoreV1().
 		Pods(astro.Namespace).
-		Create(context.TODO(), pod, metav1.CreateOptions{})
+		Create(ctx, pod, metav1.CreateOptions{})
 	if err != nil {
 		klog.Errorln("Failed to create astermule:", err)
 		return err
