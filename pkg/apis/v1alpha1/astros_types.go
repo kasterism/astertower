@@ -4,12 +4,15 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
+// +genclient
+// +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
 // +kubebuilder:resource:path=astros
 // +kubebuilder:resource:shortName=astro
-// +genclient
-// +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
+// +kubebuilder:printcolumn:name="Phase",type="string",JSONPath=".status.phase",description="The working phase of astro."
+// +kubebuilder:printcolumn:name="NodeNumber",type="integer",JSONPath=".status.nodeNumber",description="The number of nodes in a directed acyclic graph."
+// +kubebuilder:printcolumn:name="ReadyNodeNumber",type="integer",JSONPath=".status.readyNodeNumber",description="The number of ready nodes in a directed acyclic graph."
 
 // Astro is a specification for a Astro resource
 type Astro struct {
@@ -82,9 +85,11 @@ type AstroRef struct {
 // AstroStatus is the status for a Astro resource
 type AstroStatus struct {
 	// +optional
-	Initialized bool `json:"initialized,omitempty"`
+	WorkflowEngineInitialized bool `json:"workflowEngineInitialized,omitempty"`
 	// +optional
 	Conditions []AstroCondition `json:"conditions,omitempty"`
+	// +optional
+	Phase AstroConditionType `json:"phase,omitempty"`
 	// +optional
 	DeploymentRef []AstroRef `json:"deploymentRef,omitempty"`
 	// +optional

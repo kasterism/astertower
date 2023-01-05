@@ -17,7 +17,20 @@ spec:
     singular: astro
   scope: Namespaced
   versions:
-  - name: v1alpha1
+  - additionalPrinterColumns:
+    - description: The working phase of astro.
+      jsonPath: .status.phase
+      name: Phase
+      type: string
+    - description: The number of nodes in a directed acyclic graph.
+      jsonPath: .status.nodeNumber
+      name: NodeNumber
+      type: integer
+    - description: The number of ready nodes in a directed acyclic graph.
+      jsonPath: .status.readyNodeNumber
+      name: ReadyNodeNumber
+      type: integer
+    name: v1alpha1
     schema:
       openAPIV3Schema:
         description: Astro is a specification for a Astro resource
@@ -105,11 +118,11 @@ spec:
                       type: string
                   type: object
                 type: array
-              initialized:
-                type: boolean
               nodeNumber:
                 format: int32
                 type: integer
+              phase:
+                type: string
               readyNodeNumber:
                 format: int32
                 type: integer
@@ -122,6 +135,8 @@ spec:
                       type: string
                   type: object
                 type: array
+              workflowEngineInitialized:
+                type: boolean
             type: object
         type: object
     served: true

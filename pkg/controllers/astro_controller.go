@@ -92,32 +92,32 @@ func NewAstroController(kubeClientset kubernetes.Interface, astroClientset aster
 	}
 
 	_, err = deploymentInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
-		AddFunc: astroController.handleDeployment,
+		AddFunc: astroController.handleObject,
 		UpdateFunc: func(oldObj, newObj interface{}) {
 			oldDeployment := oldObj.(*appsv1.Deployment)
 			newDeployment := newObj.(*appsv1.Deployment)
 			if oldDeployment.ResourceVersion == newDeployment.ResourceVersion {
 				return
 			}
-			astroController.handleDeployment(newDeployment)
+			astroController.handleObject(newDeployment)
 		},
-		DeleteFunc: astroController.handleDeployment,
+		DeleteFunc: astroController.handleObject,
 	})
 	if err != nil {
 		klog.Fatalln("Failed to add deployment event handlers")
 	}
 
 	_, err = serviceInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
-		AddFunc: astroController.handleService,
+		AddFunc: astroController.handleObject,
 		UpdateFunc: func(oldObj, newObj interface{}) {
 			oldService := oldObj.(*corev1.Service)
 			newService := newObj.(*corev1.Service)
 			if oldService.ResourceVersion == newService.ResourceVersion {
 				return
 			}
-			astroController.handleService(newService)
+			astroController.handleObject(newService)
 		},
-		DeleteFunc: astroController.handleService,
+		DeleteFunc: astroController.handleObject,
 	})
 	if err != nil {
 		klog.Fatalln("Failed to add service event handlers")
@@ -318,12 +318,14 @@ func (c *AstroController) syncCreate(ctx context.Context, astro *v1alpha1.Astro)
 		return err
 	}
 
-	statusCopy.Initialized = true
 	statusCopy.Conditions = append(statusCopy.Conditions, v1alpha1.AstroCondition{
 		Type:               "Ready",
 		Status:             v1alpha1.AstroConditionInitialized,
 		LastTransitionTime: metav1.NewTime(time.Now()),
 	})
+	statusCopy.Phase = v1alpha1.AstroConditionInitialized
+	statusCopy.NodeNumber = int32(len(statusCopy.DeploymentRef))
+	statusCopy.ReadyNodeNumber = 0
 
 	return c.syncStatus(ctx, astro, *statusCopy)
 }
@@ -331,7 +333,52 @@ func (c *AstroController) syncCreate(ctx context.Context, astro *v1alpha1.Astro)
 func (c *AstroController) syncUpdate(ctx context.Context, astro *v1alpha1.Astro) error {
 	klog.Infof("Sync update astro: %s\n", astro.Name)
 
-	return c.syncStatus(ctx, astro, astro.Status)
+	newStatus := astro.Status.DeepCopy()
+	var readyNode int32 = 0
+
+	if astro.Status.Phase == v1alpha1.AstroConditionInitialized {
+		// Check the workflow engine startup status
+		astermuleRef := astro.Status.AstermuleRef
+		pod, err := c.kubeClientset.
+			CoreV1().
+			Pods(astermuleRef.Namespace).
+			Get(ctx, astermuleRef.Name, metav1.GetOptions{})
+		if err != nil {
+			klog.ErrorS(err, "Failed to get astermule through astermuleRef", "astermule", klog.KRef(pod.Namespace, pod.Name))
+			return err
+		}
+		if pod.Status.Phase == corev1.PodRunning {
+			newStatus.WorkflowEngineInitialized = true
+		}
+
+		// Count the number of successfully deployed nodes
+		for _, deployRef := range astro.Status.DeploymentRef {
+			deployment, err := c.kubeClientset.
+				AppsV1().
+				Deployments(deployRef.Namespace).
+				Get(ctx, deployRef.Name, metav1.GetOptions{})
+			if err != nil {
+				klog.ErrorS(err, "Failed to get deployment through deploymentRef", "deployment", klog.KRef(deployRef.Namespace, deployRef.Name))
+				return err
+			}
+			if deployment.Status.AvailableReplicas == *deployment.Spec.Replicas {
+				readyNode++
+			}
+		}
+		newStatus.ReadyNodeNumber = readyNode
+
+		// Check whether the Ready state is satisfied, and update if it is
+		if newStatus.ReadyNodeNumber == newStatus.NodeNumber && newStatus.WorkflowEngineInitialized {
+			newStatus.Conditions = append(newStatus.Conditions, v1alpha1.AstroCondition{
+				Type:               "Ready",
+				Status:             v1alpha1.AstroConditionReady,
+				LastTransitionTime: metav1.NewTime(time.Now()),
+			})
+			newStatus.Phase = v1alpha1.AstroConditionReady
+		}
+	}
+
+	return c.syncStatus(ctx, astro, *newStatus)
 }
 
 func (c *AstroController) syncDelete(ctx context.Context, astro *v1alpha1.Astro) error {
@@ -501,10 +548,35 @@ func (c *AstroController) newAstermule(ctx context.Context, astro *v1alpha1.Astr
 	return nil
 }
 
-func (c *AstroController) handleDeployment(item interface{}) {
+func (c *AstroController) handleObject(obj interface{}) {
+	var object metav1.Object
+	var ok bool
+	if object, ok = obj.(metav1.Object); !ok {
+		tombstone, ok := obj.(cache.DeletedFinalStateUnknown)
+		if !ok {
+			runtime.HandleError(fmt.Errorf("error decoding object, invalid type"))
+			return
+		}
+		object, ok = tombstone.Obj.(metav1.Object)
+		if !ok {
+			runtime.HandleError(fmt.Errorf("error decoding object tombstone, invalid type"))
+			return
+		}
+		klog.V(4).Infof("Recovered deleted object '%s' from tombstone", object.GetName())
+	}
+	klog.V(4).Infof("Processing object: %s", object.GetName())
+	if ownerRef := metav1.GetControllerOf(object); ownerRef != nil {
+		if ownerRef.Kind != "Astro" {
+			return
+		}
 
-}
+		astro, err := c.astroLister.Astros(object.GetNamespace()).Get(ownerRef.Name)
+		if err != nil {
+			klog.V(4).Infof("ignoring orphaned object '%s' of astro '%s'", object.GetSelfLink(), ownerRef.Name)
+			return
+		}
 
-func (c *AstroController) handleService(item interface{}) {
-
+		c.enqueue(astro)
+		return
+	}
 }
