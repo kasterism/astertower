@@ -86,6 +86,10 @@ func SaveHandler(w http.ResponseWriter, r *http.Request) {
 			Msg:  "success",
 		}
 		respStr, _ := json.Marshal(resp)
-		w.Write(respStr)
+		_, err = w.Write(respStr)
+		if err != nil {
+			klog.Errorln("Failed to write response")
+			return
+		}
 	}
 }

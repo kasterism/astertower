@@ -17,15 +17,14 @@ func buildNode(tasks []*etree.Element) {
 	for _, node := range tasks {
 		switch node.SelectAttrValue("custom", "none") {
 		case DockerType:
-			{
-				newNode := NewDockerNode()
-				newNode.Fillin(node)
-				dag[newNode.GetName()] = newNode
-			}
-		default:
-			{
+			newNode := NewDockerNode()
+			if err := newNode.Fillin(node); err != nil {
+				klog.Errorln("Failed to fill node info")
 				break
 			}
+			dag[newNode.GetName()] = newNode
+		default:
+			break
 		}
 	}
 }
