@@ -7,6 +7,7 @@ import (
 	astertowerclientset "github.com/kasterism/astertower/pkg/clients/clientset/astertower"
 	"github.com/kasterism/astertower/pkg/clients/informer/externalversions"
 	"github.com/kasterism/astertower/pkg/controllers"
+	"github.com/kasterism/astertower/pkg/server"
 	"github.com/kasterism/astertower/pkg/signals"
 	kubeinformers "k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes"
@@ -15,13 +16,21 @@ import (
 )
 
 var (
+	// controller
 	masterURL  string
 	kubeconfig string
+
+	// server
+	namespace string
+	listen    string
 )
 
 func init() {
 	flag.StringVar(&kubeconfig, "kubeconfig", clientcmd.RecommendedHomeFile, "Path to a kubeconfig. Only required if out-of-cluster.")
 	flag.StringVar(&masterURL, "master", "", "The address of the Kubernetes API server. Overrides any value in kubeconfig. Only required if out-of-cluster.")
+
+	flag.StringVar(&namespace, "namespace", "default", "Specify a namespace for the workflow to run")
+	flag.StringVar(&listen, "listen", "0.0.0.0:8080", "Specify the listening ip address and port")
 }
 
 func main() {
@@ -56,6 +65,9 @@ func main() {
 
 	go kubeInformerFactory.Start(ctx.Done())
 	go astroInformerFactory.Start(ctx.Done())
+
+	// Launch server
+	go server.Start(ctx, listen)
 
 	if err = astroController.Run(ctx, 2); err != nil {
 		klog.Fatalln("Error running controller:", err.Error())
