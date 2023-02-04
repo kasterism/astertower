@@ -461,7 +461,11 @@ func (c *AstroController) syncUpdate(ctx context.Context, astro *v1alpha1.Astro)
 			klog.Errorln("Parse response error:", err)
 		}
 		newStatus.Result = result
-		newStatus.Phase = v1alpha1.AstroPhaseSuccess
+		if result.Status.Health {
+			newStatus.Phase = v1alpha1.AstroPhaseSuccess
+		} else {
+			newStatus.Phase = v1alpha1.AstroPhaseWrong
+		}
 	}
 	return c.syncStatus(ctx, astro, *newStatus)
 }
