@@ -7,7 +7,6 @@ import (
 	astertowerclientset "github.com/kasterism/astertower/pkg/clients/clientset/astertower"
 	"github.com/kasterism/astertower/pkg/clients/informer/externalversions"
 	"github.com/kasterism/astertower/pkg/controllers"
-	"github.com/kasterism/astertower/pkg/server"
 	"github.com/kasterism/astertower/pkg/signals"
 	kubeinformers "k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes"
@@ -19,6 +18,7 @@ var (
 	// controller
 	masterURL  string
 	kubeconfig string
+	mode       string
 
 	// server
 	namespace string
@@ -28,6 +28,7 @@ var (
 func init() {
 	flag.StringVar(&kubeconfig, "kubeconfig", clientcmd.RecommendedHomeFile, "Path to a kubeconfig. Only required if out-of-cluster.")
 	flag.StringVar(&masterURL, "master", "", "The address of the Kubernetes API server. Overrides any value in kubeconfig. Only required if out-of-cluster.")
+	flag.StringVar(&mode, "mode", "external", "The running location of the astertower controller.")
 
 	flag.StringVar(&namespace, "namespace", "default", "Specify a namespace for the workflow to run")
 	flag.StringVar(&listen, "listen", "0.0.0.0:8080", "Specify the listening ip address and port")
@@ -61,13 +62,13 @@ func main() {
 	astroController := controllers.NewAstroController(kubeClientset, astroClientset,
 		kubeInformerFactory.Apps().V1().Deployments(),
 		kubeInformerFactory.Core().V1().Services(),
-		astroInformerFactory.Astertower().V1alpha1().Astros())
+		astroInformerFactory.Astertower().V1alpha1().Astros(), mode)
 
 	go kubeInformerFactory.Start(ctx.Done())
 	go astroInformerFactory.Start(ctx.Done())
 
 	// Launch server
-	go server.Start(ctx, listen)
+	// go server.Start(ctx, listen)
 
 	if err = astroController.Run(ctx, 2); err != nil {
 		klog.Fatalln("Error running controller:", err.Error())

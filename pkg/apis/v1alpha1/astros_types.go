@@ -1,6 +1,7 @@
 package v1alpha1
 
 import (
+	"github.com/kasterism/astermule/pkg/parser"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -52,22 +53,43 @@ type AstroSpec struct {
 	Stars []AstroStar `json:"stars,omitempty"`
 }
 
+type AstroPhase string
+
+const (
+	AstroPhaseInitialized  AstroPhase = "Initialized"
+	AstroPhaseWaited       AstroPhase = "Waited"
+	AstroPhaseDeployFailed AstroPhase = "DeployFailed"
+	AstroPhaseEngineFailed AstroPhase = "EngineFailed"
+	AstroPhaseReady        AstroPhase = "Ready"
+	AstroPhaseSuccess      AstroPhase = "Success"
+	AstroPhaseWrong        AstroPhase = "Wrong"
+)
+
 type AstroConditionType string
 
 const (
-	AstroConditionInitialized AstroConditionType = "Initialized"
-	AstroConditionReady       AstroConditionType = "Ready"
-	AstroConditionLaunched    AstroConditionType = "Launched"
-	AstroConditionFailed      AstroConditionType = "Failed"
-	AstroConditionSucceeded   AstroConditionType = "Succeeded"
+	AstroConditionTypeDeployment AstroConditionType = "Deployment"
+	AstroConditionTypeService    AstroConditionType = "Service"
+	AstroConditionTypeAstermule  AstroConditionType = "Astermule"
+)
+
+type AstroConditionStatus string
+
+const (
+	AstroConditionStatusUnknown AstroConditionStatus = "Unknown"
+	AstroConditionStatusReady   AstroConditionStatus = "Ready"
+	AstroConditionStatusFailed  AstroConditionStatus = "Failed"
 )
 
 // Condition defines an observation of a Cluster API resource operational state.
 type AstroCondition struct {
-	Type string `json:"type"`
+	Type AstroConditionType `json:"type"`
 
 	// Workflow status
-	Status AstroConditionType `json:"status"`
+	Status AstroConditionStatus `json:"status"`
+
+	// +optional
+	Reason string `json:"reason"`
 
 	// Last time the condition transitioned from one status to another.
 	// This should be when the underlying condition changed. If that is not known, then using the time when
@@ -85,11 +107,9 @@ type AstroRef struct {
 // AstroStatus is the status for a Astro resource
 type AstroStatus struct {
 	// +optional
-	WorkflowEngineInitialized bool `json:"workflowEngineInitialized,omitempty"`
-	// +optional
 	Conditions []AstroCondition `json:"conditions,omitempty"`
 	// +optional
-	Phase AstroConditionType `json:"phase,omitempty"`
+	Phase AstroPhase `json:"phase,omitempty"`
 	// +optional
 	DeploymentRef []AstroRef `json:"deploymentRef,omitempty"`
 	// +optional
@@ -100,6 +120,8 @@ type AstroStatus struct {
 	NodeNumber int32 `json:"nodeNumber,omitempty"`
 	// +optional
 	ReadyNodeNumber int32 `json:"readyNodeNumber,omitempty"`
+	// +optional
+	Result parser.Message `json:"result,omitempty"`
 }
 
 // +kubebuilder:object:root=true

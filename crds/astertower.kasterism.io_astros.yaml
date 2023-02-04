@@ -3,7 +3,7 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.11.1
+    controller-gen.kubebuilder.io/version: v0.10.0
   creationTimestamp: null
   name: astros.astertower.kasterism.io
 spec:
@@ -98,6 +98,8 @@ spec:
                         changed is acceptable.
                       format: date-time
                       type: string
+                    reason:
+                      type: string
                     status:
                       description: Workflow status
                       type: string
@@ -126,6 +128,22 @@ spec:
               readyNodeNumber:
                 format: int32
                 type: integer
+              result:
+                properties:
+                  data:
+                    type: string
+                  status:
+                    description: 'TODO: Define Status'
+                    properties:
+                      health:
+                        type: boolean
+                    required:
+                    - health
+                    type: object
+                required:
+                - data
+                - status
+                type: object
               serviceRef:
                 items:
                   properties:
@@ -135,8 +153,6 @@ spec:
                       type: string
                   type: object
                 type: array
-              workflowEngineInitialized:
-                type: boolean
             type: object
         type: object
     served: true
