@@ -2,18 +2,25 @@ package controllers
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"reflect"
+	"strconv"
+	"strings"
 	"time"
 
+	"github.com/kasterism/astermule/pkg/dag"
+	"github.com/kasterism/astermule/pkg/parser"
 	"github.com/kasterism/astertower/pkg/apis/v1alpha1"
 	astertowerclientset "github.com/kasterism/astertower/pkg/clients/clientset/astertower"
 	"github.com/kasterism/astertower/pkg/clients/clientset/astertower/scheme"
 	informers "github.com/kasterism/astertower/pkg/clients/informer/externalversions/apis/v1alpha1"
 	astrolister "github.com/kasterism/astertower/pkg/clients/lister/apis/v1alpha1"
+	"github.com/parnurzeal/gorequest"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/errors"
+	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/apimachinery/pkg/util/runtime"
@@ -54,8 +61,9 @@ type AstroController struct {
 	eventBroadcaster record.EventBroadcaster
 	eventRecorder    record.EventRecorder
 
-	syncHandler  func(ctx context.Context, key string) error
-	enqueueAstro func(astro *v1alpha1.Astro)
+	syncHandler       func(ctx context.Context, key string) error
+	enqueueAstro      func(astro *v1alpha1.Astro)
+	enqueueAstroAfter func(astro *v1alpha1.Astro, duration time.Duration)
 
 	astroLister      astrolister.AstroLister
 	deploymentLister appslisters.DeploymentLister
@@ -66,11 +74,14 @@ type AstroController struct {
 	serviceListerSynced    cache.InformerSynced
 
 	queue workqueue.RateLimitingInterface
+
+	agent       *gorequest.SuperAgent
+	runningMode string
 }
 
 func NewAstroController(kubeClientset kubernetes.Interface, astroClientset astertowerclientset.Interface,
 	deploymentInformer appsinformers.DeploymentInformer, serviceInformer coreinformers.ServiceInformer,
-	astroInformer informers.AstroInformer) *AstroController {
+	astroInformer informers.AstroInformer, mode string) *AstroController {
 
 	eventBroadcaster := record.NewBroadcaster()
 
@@ -125,6 +136,7 @@ func NewAstroController(kubeClientset kubernetes.Interface, astroClientset aster
 
 	astroController.syncHandler = astroController.syncAstro
 	astroController.enqueueAstro = astroController.enqueue
+	astroController.enqueueAstroAfter = astroController.enqueueAfter
 
 	astroController.astroLister = astroInformer.Lister()
 	astroController.deploymentLister = deploymentInformer.Lister()
@@ -132,6 +144,9 @@ func NewAstroController(kubeClientset kubernetes.Interface, astroClientset aster
 	astroController.astroListerSynced = astroInformer.Informer().HasSynced
 	astroController.deploymentListerSynced = deploymentInformer.Informer().HasSynced
 	astroController.serviceListerSynced = serviceInformer.Informer().HasSynced
+
+	astroController.agent = gorequest.New()
+	astroController.runningMode = mode
 
 	return astroController
 }
@@ -180,7 +195,7 @@ func (c *AstroController) processNextWorkItem(ctx context.Context) bool {
 }
 
 func (c *AstroController) handleErr(err error, key interface{}) {
-	if err == nil || errors.HasStatusCause(err, corev1.NamespaceTerminatingCause) {
+	if err == nil || kerrors.HasStatusCause(err, corev1.NamespaceTerminatingCause) {
 		c.queue.Forget(key)
 		return
 	}
@@ -248,6 +263,16 @@ func (c *AstroController) enqueue(astro *v1alpha1.Astro) {
 	c.queue.AddRateLimited(key)
 }
 
+func (c *AstroController) enqueueAfter(astro *v1alpha1.Astro, duration time.Duration) {
+	key, err := cache.DeletionHandlingMetaNamespaceKeyFunc(astro)
+	if err != nil {
+		runtime.HandleError(err)
+		return
+	}
+
+	c.queue.AddAfter(key, duration)
+}
+
 func (c *AstroController) syncAstro(ctx context.Context, key string) error {
 	namespace, name, err := cache.SplitMetaNamespaceKey(key)
 	if err != nil {
@@ -262,7 +287,7 @@ func (c *AstroController) syncAstro(ctx context.Context, key string) error {
 	}()
 
 	astro, err := c.astroLister.Astros(namespace).Get(name)
-	if errors.IsNotFound(err) {
+	if kerrors.IsNotFound(err) {
 		klog.V(2).InfoS("Astro has been deleted", "astro", klog.KRef(namespace, name))
 		return nil
 	}
@@ -302,14 +327,9 @@ func (c *AstroController) syncCreate(ctx context.Context, astro *v1alpha1.Astro)
 		}
 	}
 
-	err := c.newAstermule(ctx, astro)
-	if err != nil {
-		return err
-	}
-
 	statusCopy := astro.Status.DeepCopy()
 
-	astro, err = c.astroClientset.
+	astro, err := c.astroClientset.
 		AstertowerV1alpha1().
 		Astros(astro.Namespace).
 		Update(ctx, astro, metav1.UpdateOptions{})
@@ -318,12 +338,7 @@ func (c *AstroController) syncCreate(ctx context.Context, astro *v1alpha1.Astro)
 		return err
 	}
 
-	statusCopy.Conditions = append(statusCopy.Conditions, v1alpha1.AstroCondition{
-		Type:               "Ready",
-		Status:             v1alpha1.AstroConditionInitialized,
-		LastTransitionTime: metav1.NewTime(time.Now()),
-	})
-	statusCopy.Phase = v1alpha1.AstroConditionInitialized
+	statusCopy.Phase = v1alpha1.AstroPhaseInitialized
 	statusCopy.NodeNumber = int32(len(statusCopy.DeploymentRef))
 	statusCopy.ReadyNodeNumber = 0
 
@@ -334,23 +349,12 @@ func (c *AstroController) syncUpdate(ctx context.Context, astro *v1alpha1.Astro)
 	klog.Infof("Sync update astro: %s\n", astro.Name)
 
 	newStatus := astro.Status.DeepCopy()
-	var readyNode int32 = 0
+	var (
+		readyNode int32 = 0
+	)
 
-	if astro.Status.Phase == v1alpha1.AstroConditionInitialized {
-		// Check the workflow engine startup status
-		astermuleRef := astro.Status.AstermuleRef
-		pod, err := c.kubeClientset.
-			CoreV1().
-			Pods(astermuleRef.Namespace).
-			Get(ctx, astermuleRef.Name, metav1.GetOptions{})
-		if err != nil {
-			klog.ErrorS(err, "Failed to get astermule through astermuleRef", "astermule", klog.KRef(pod.Namespace, pod.Name))
-			return err
-		}
-		if pod.Status.Phase == corev1.PodRunning {
-			newStatus.WorkflowEngineInitialized = true
-		}
-
+	switch astro.Status.Phase {
+	case v1alpha1.AstroPhaseInitialized:
 		// Count the number of successfully deployed nodes
 		for _, deployRef := range astro.Status.DeploymentRef {
 			deployment, err := c.kubeClientset.
@@ -368,16 +372,97 @@ func (c *AstroController) syncUpdate(ctx context.Context, astro *v1alpha1.Astro)
 		newStatus.ReadyNodeNumber = readyNode
 
 		// Check whether the Ready state is satisfied, and update if it is
-		if newStatus.ReadyNodeNumber == newStatus.NodeNumber && newStatus.WorkflowEngineInitialized {
+		if newStatus.ReadyNodeNumber == newStatus.NodeNumber {
 			newStatus.Conditions = append(newStatus.Conditions, v1alpha1.AstroCondition{
-				Type:               "Ready",
-				Status:             v1alpha1.AstroConditionReady,
+				Type:               v1alpha1.AstroConditionTypeDeployment,
+				Status:             v1alpha1.AstroConditionStatusReady,
 				LastTransitionTime: metav1.NewTime(time.Now()),
 			})
-			newStatus.Phase = v1alpha1.AstroConditionReady
-		}
-	}
 
+			newStatus.Conditions = append(newStatus.Conditions, v1alpha1.AstroCondition{
+				Type:               v1alpha1.AstroConditionTypeService,
+				Status:             v1alpha1.AstroConditionStatusReady,
+				LastTransitionTime: metav1.NewTime(time.Now()),
+			})
+
+			newStatus.Phase = v1alpha1.AstroPhaseWaited
+		}
+	case v1alpha1.AstroPhaseWaited:
+		if astro.Status.AstermuleRef.Name == "" {
+			err := c.newAstermule(ctx, astro, newStatus)
+			if err != nil {
+				return err
+			}
+		} else {
+			// Check the workflow engine startup status
+			astermuleRef := astro.Status.AstermuleRef
+			pod, err := c.kubeClientset.
+				CoreV1().
+				Pods(astermuleRef.Namespace).
+				Get(ctx, astermuleRef.Name, metav1.GetOptions{})
+			if err != nil {
+				klog.ErrorS(err, "Failed to get astermule through astermuleRef", "astermule", klog.KRef(pod.Namespace, pod.Name))
+				return err
+			}
+			if pod.Status.Phase == corev1.PodRunning {
+				newStatus.Phase = v1alpha1.AstroPhaseReady
+			} else if pod.Status.Phase == corev1.PodFailed {
+				newStatus.Phase = v1alpha1.AstroPhaseEngineFailed
+			}
+		}
+		// Synchronization is triggered when Astro is in the waiting state and must join the queue again
+		c.enqueueAstro(astro)
+	case v1alpha1.AstroPhaseDeployFailed:
+		// TODO: Handling when deployment fails
+	case v1alpha1.AstroPhaseEngineFailed:
+		// TODO: Handling when starting the engine fails
+	case v1alpha1.AstroPhaseReady:
+		var (
+			ip  string
+			url string
+		)
+		astermuleRef := astro.Status.AstermuleRef
+		if c.runningMode == "external" {
+			_, err := c.kubeClientset.
+				CoreV1().
+				Services(astermuleRef.Namespace).
+				Get(ctx, astermuleRef.Name, metav1.GetOptions{})
+			if err != nil {
+				klog.ErrorS(err, "Failed to get astermule through astermuleRef", "astermule", klog.KRef(astermuleRef.Namespace, astermuleRef.Name))
+				return err
+			}
+
+			ip = "localhost"
+			url = "http://" + ip + ":30000"
+		} else {
+			pod, err := c.kubeClientset.
+				CoreV1().
+				Pods(astermuleRef.Namespace).
+				Get(ctx, astermuleRef.Name, metav1.GetOptions{})
+			if err != nil {
+				klog.ErrorS(err, "Failed to get astermule through astermuleRef", "astermule", klog.KRef(astermuleRef.Namespace, astermuleRef.Name))
+				return err
+			}
+
+			ip = pod.Status.PodIP
+			url = "http://" + ip + ":8080"
+		}
+		_, body, errs := c.agent.Get(url).End()
+		if len(errs) > 0 {
+			for _, err := range errs {
+				klog.Errorln("Launch error:", err)
+			}
+			return errors.New("launch astermule error")
+		}
+
+		result := parser.Message{}
+		err := json.Unmarshal([]byte(body), &result)
+		if err != nil {
+			klog.Errorln("Parse response error:", err)
+		}
+		newStatus.Result = result
+		newStatus.Phase = v1alpha1.AstroPhaseSuccess
+	}
 	return c.syncStatus(ctx, astro, *newStatus)
 }
 
@@ -413,6 +498,10 @@ func (c *AstroController) syncStatus(ctx context.Context, astro *v1alpha1.Astro,
 		AstertowerV1alpha1().
 		Astros(astro.Namespace).
 		UpdateStatus(ctx, astro, metav1.UpdateOptions{})
+	if err != nil {
+		runtime.HandleError(err)
+		return err
+	}
 
 	return err
 }
@@ -471,8 +560,24 @@ func (c *AstroController) newDeployment(ctx context.Context, astro *v1alpha1.Ast
 }
 
 func (c *AstroController) newService(ctx context.Context, astro *v1alpha1.Astro, star *v1alpha1.AstroStar) error {
+	deps := ""
+	for _, depStr := range star.Dependencies {
+		if deps == "" {
+			deps += depStr
+		} else {
+			deps += " " + depStr
+		}
+	}
+
 	labels := map[string]string{
 		"star": star.Name,
+	}
+
+	annotations := map[string]string{
+		"name":         star.Name,
+		"action":       star.Action,
+		"target":       star.Target,
+		"dependencies": deps,
 	}
 
 	service := &corev1.Service{
@@ -482,6 +587,7 @@ func (c *AstroController) newService(ctx context.Context, astro *v1alpha1.Astro,
 			OwnerReferences: []metav1.OwnerReference{
 				*metav1.NewControllerRef(astro, astroControllerKind),
 			},
+			Annotations: annotations,
 		},
 		Spec: corev1.ServiceSpec{
 			Ports: []corev1.ServicePort{
@@ -511,7 +617,41 @@ func (c *AstroController) newService(ctx context.Context, astro *v1alpha1.Astro,
 	return nil
 }
 
-func (c *AstroController) newAstermule(ctx context.Context, astro *v1alpha1.Astro) error {
+func (c *AstroController) newAstermule(ctx context.Context, astro *v1alpha1.Astro, newStatus *v1alpha1.AstroStatus) error {
+	nodes := dag.DAG{
+		Nodes: []dag.Node{},
+	}
+	for _, serviceRef := range astro.Status.ServiceRef {
+		node := dag.Node{}
+		service, err := c.kubeClientset.
+			CoreV1().
+			Services(serviceRef.Namespace).
+			Get(ctx, serviceRef.Name, metav1.GetOptions{})
+		if err != nil {
+			runtime.HandleError(err)
+			return err
+		}
+
+		node.Name = service.Annotations["name"]
+		node.Action = service.Annotations["action"]
+		depStr := service.Annotations["dependencies"]
+		if depStr != "" {
+			deps := strings.Split(depStr, " ")
+			node.Dependencies = deps
+		}
+		target := service.Annotations["target"]
+		node.URL = "http://" + service.Spec.ClusterIP + ":" + strconv.FormatInt(int64(service.Spec.Ports[0].Port), 10) + target
+		nodes.Nodes = append(nodes.Nodes, node)
+	}
+	data, err := json.Marshal(nodes)
+	if err != nil {
+		klog.Errorln("Parse nodes failed")
+		return err
+	}
+
+	labels := map[string]string{
+		"astermule": astro.Name,
+	}
 	pod := &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
 			Namespace: astro.Namespace,
@@ -519,19 +659,20 @@ func (c *AstroController) newAstermule(ctx context.Context, astro *v1alpha1.Astr
 			OwnerReferences: []metav1.OwnerReference{
 				*metav1.NewControllerRef(astro, astroControllerKind),
 			},
+			Labels: labels,
 		},
 		Spec: corev1.PodSpec{
 			Containers: []corev1.Container{
 				{
 					Name:  astro.Name + "-astermule",
 					Image: AstermuleImage,
-					// TODO: Complete command of astermule
+					Args:  []string{"--dag", string(data)},
 				},
 			},
 		},
 	}
 
-	pod, err := c.kubeClientset.
+	pod, err = c.kubeClientset.
 		CoreV1().
 		Pods(astro.Namespace).
 		Create(ctx, pod, metav1.CreateOptions{})
@@ -540,7 +681,38 @@ func (c *AstroController) newAstermule(ctx context.Context, astro *v1alpha1.Astr
 		return err
 	}
 
-	astro.Status.AstermuleRef = v1alpha1.AstroRef{
+	if c.runningMode == "external" {
+		service := &corev1.Service{
+			ObjectMeta: metav1.ObjectMeta{
+				Namespace: astro.Namespace,
+				Name:      astro.Name + "-astermule",
+				OwnerReferences: []metav1.OwnerReference{
+					*metav1.NewControllerRef(astro, astroControllerKind),
+				},
+			},
+			Spec: corev1.ServiceSpec{
+				Type: corev1.ServiceTypeNodePort,
+				Ports: []corev1.ServicePort{
+					{
+						Port:       8080,
+						TargetPort: intstr.FromInt(int(8080)),
+						NodePort:   30000,
+					},
+				},
+				Selector: labels,
+			},
+		}
+
+		_, err = c.kubeClientset.
+			CoreV1().
+			Services(astro.Namespace).
+			Create(ctx, service, metav1.CreateOptions{})
+		if err != nil {
+			klog.Errorln("Failed to create astermule service:", err)
+			return err
+		}
+	}
+	newStatus.AstermuleRef = v1alpha1.AstroRef{
 		Name:      pod.Name,
 		Namespace: pod.Namespace,
 	}
