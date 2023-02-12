@@ -536,7 +536,6 @@ func (c *AstroController) newDeployment(ctx context.Context, astro *v1alpha1.Ast
 							Ports: []corev1.ContainerPort{
 								{
 									ContainerPort: star.Port,
-									HostPort:      star.Port,
 								},
 							},
 						},
