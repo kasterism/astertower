@@ -116,3 +116,14 @@ install:
 
 uninstall:
 	kubectl delete -f crds
+
+STAGING_REGISTRY ?= kasterism
+IMAGE_NAME ?= astertower
+TAG ?= latest
+
+IMG ?= ${STAGING_REGISTRY}/${IMAGE_NAME}:${TAG}
+docker-build:
+	docker buildx build -t ${IMG} . --load
+
+docker-push:
+	docker buildx build --platform linux/amd64,linux/arm64 -t ${IMG} . --push
