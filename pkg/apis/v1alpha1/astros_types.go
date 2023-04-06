@@ -51,7 +51,29 @@ type AstroStar struct {
 // AstroSpec is the spec for a Astro resource
 type AstroSpec struct {
 	Stars []AstroStar `json:"stars,omitempty"`
+
+	// Type is used to define the type of Request
+	// +optional
+	Type RequestType `json:"type,omitempty"`
+
+	// Parameters are used to represent the entry parameter for entering the first microservice
+	// +optional
+	Parameters string `json:"parameters,omitempty"`
 }
+
+// RequestType is the type for restful request
+type RequestType string
+
+const (
+	GetRequest     RequestType = "GET"
+	PostRequest    RequestType = "POST"
+	PutRequest     RequestType = "PUT"
+	DeleteRequest  RequestType = "DELETE"
+	TraceRequest   RequestType = "TRACE"
+	HeadRequest    RequestType = "HEAD"
+	OptionsRequest RequestType = "OPTIONS"
+	ConnectRequest RequestType = "CONNECT"
+)
 
 type AstroPhase string
 
