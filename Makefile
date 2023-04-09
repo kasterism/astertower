@@ -91,7 +91,7 @@ go-to-protobuf:
 	mv ${GOPATH_SRC}/${PROJECT_APIS}/generated.proto pkg/apis/${VERSION}
 
 crd:
-	controller-gen crd:crdVersions=v1,allowDangerousTypes=true paths="./pkg/apis/..." output:crd:artifacts:config=crds output:crd:artifacts:config=charts/astertower/crds
+	controller-gen crd:crdVersions=v1,allowDangerousTypes=true rbac:roleName=astertower-role webhook paths="./pkg/apis/..." output:crd:artifacts:config=crds output:crd:artifacts:config=charts/astertower/crds
 
 goimports:
 	go install golang.org/x/tools/cmd/goimports@latest
