@@ -31,7 +31,6 @@ var (
 )
 
 func init() {
-	flag.StringVar(&kubeconfig, "kubeconfig", clientcmd.RecommendedHomeFile, "Path to a kubeconfig. Only required if out-of-cluster.")
 	flag.StringVar(&mode, "mode", "external", "The running location of the astertower controller.")
 
 	flag.StringVar(&namespace, "namespace", "default", "Specify a namespace for the workflow to run")
