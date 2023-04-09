@@ -2,6 +2,10 @@ package main
 
 import (
 	"flag"
+	"fmt"
+	"os"
+	"os/user"
+	"path/filepath"
 	"time"
 
 	astertowerclientset "github.com/kasterism/astertower/pkg/clients/clientset/astertower"
@@ -10,13 +14,14 @@ import (
 	"github.com/kasterism/astertower/pkg/signals"
 	kubeinformers "k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
+	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
 	"k8s.io/klog/v2"
 )
 
 var (
 	// controller
-	masterURL  string
 	kubeconfig string
 	mode       string
 
@@ -27,7 +32,6 @@ var (
 
 func init() {
 	flag.StringVar(&kubeconfig, "kubeconfig", clientcmd.RecommendedHomeFile, "Path to a kubeconfig. Only required if out-of-cluster.")
-	flag.StringVar(&masterURL, "master", "", "The address of the Kubernetes API server. Overrides any value in kubeconfig. Only required if out-of-cluster.")
 	flag.StringVar(&mode, "mode", "external", "The running location of the astertower controller.")
 
 	flag.StringVar(&namespace, "namespace", "default", "Specify a namespace for the workflow to run")
@@ -41,10 +45,7 @@ func main() {
 	// set up signals so we handle the first shutdown signal gracefully
 	ctx := signals.SetupSignalHandler()
 
-	config, err := clientcmd.BuildConfigFromFlags(masterURL, kubeconfig)
-	if err != nil {
-		klog.Fatalln(err)
-	}
+	config := GetConfigOrDie()
 
 	kubeClientset, err := kubernetes.NewForConfig(config)
 	if err != nil {
@@ -73,4 +74,48 @@ func main() {
 	if err = astroController.Run(ctx, 2); err != nil {
 		klog.Fatalln("Error running controller:", err.Error())
 	}
+}
+
+func GetConfigOrDie() *rest.Config {
+	cfg, err := GetConfig("")
+	if err != nil {
+		klog.Errorln(err, "unable to get kubeconfig")
+		os.Exit(1)
+	}
+	return cfg
+}
+
+func GetConfig(context string) (*rest.Config, error) {
+	if len(kubeconfig) > 0 {
+		return loadConfigWithContext("", &clientcmd.ClientConfigLoadingRules{ExplicitPath: kubeconfig}, context)
+	}
+
+	kubeconfigPath := os.Getenv(clientcmd.RecommendedConfigPathEnvVar)
+	if len(kubeconfigPath) == 0 {
+		if c, err := rest.InClusterConfig(); err == nil {
+			return c, nil
+		}
+	}
+
+	loadingRules := clientcmd.NewDefaultClientConfigLoadingRules()
+	if _, ok := os.LookupEnv("HOME"); !ok {
+		u, err := user.Current()
+		if err != nil {
+			return nil, fmt.Errorf("could not get current user: %w", err)
+		}
+		loadingRules.Precedence = append(loadingRules.Precedence, filepath.Join(u.HomeDir, clientcmd.RecommendedHomeDir, clientcmd.RecommendedFileName))
+	}
+
+	return loadConfigWithContext("", loadingRules, context)
+}
+
+func loadConfigWithContext(apiServerURL string, loader clientcmd.ClientConfigLoader, context string) (*rest.Config, error) {
+	return clientcmd.NewNonInteractiveDeferredLoadingClientConfig(
+		loader,
+		&clientcmd.ConfigOverrides{
+			ClusterInfo: clientcmdapi.Cluster{
+				Server: apiServerURL,
+			},
+			CurrentContext: context,
+		}).ClientConfig()
 }
