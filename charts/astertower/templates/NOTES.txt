@@ -1,0 +1,3 @@
+This application contains 1 CRD/controllers: Astros.
+
+The operator to control workflow and astermule, a lightweight microservice composition workflow implement.
